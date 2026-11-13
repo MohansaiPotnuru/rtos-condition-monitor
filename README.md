@@ -125,8 +125,10 @@ vendor/cmsis/  CMSIS core + STM32F4 device headers (Apache-2.0)
 | NUCLEO-F401RE hardware | clock tree, ADC, IWDG and GPIO paths are written against RM0368; on-board validation is the next step |
 
 QEMU does not model the STM32 RCC, GPIO, IWDG or the ADC common block, so the
-QEMU build skips those registers and transmits by polling. Everything above the
-BSP is the same code.
+QEMU build skips those registers, transmits by polling, and reads QEMU's
+synthetic ADC ramp without waiting for EOC. The emulated readings are therefore
+meaningless (they even trip the alarms, which exercises that path too), but
+every layer above the BSP is the same code that runs on the board.
 
 ## License
 
