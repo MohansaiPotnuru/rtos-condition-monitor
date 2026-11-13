@@ -13,7 +13,8 @@
 #include "fault.h"
 #include "stm32f4xx.h"
 
-extern uint32_t _estack, _sidata, _sdata, _edata, _sbss, _ebss;
+/* Linker-script symbols: declared as arrays because only their addresses are meaningful. */
+extern uint32_t _estack[], _sidata[], _sdata[], _edata[], _sbss[], _ebss[];
 extern int      main(void);
 
 void Reset_Handler(void);
@@ -46,7 +47,7 @@ typedef void (*vector_t)(void);
 #pragma GCC diagnostic ignored "-Wpedantic"
 __attribute__((section(".isr_vector"), used)) const vector_t g_vectors[16 + 85] = {
     [1 ... 16 + 84] = Default_Handler,
-    [0]  = (vector_t)(uintptr_t)&_estack,
+    [0]  = (vector_t)(uintptr_t)_estack,
     [1]  = Reset_Handler,
     [2]  = NMI_Handler,
     [3]  = HardFault_Handler,
@@ -68,14 +69,14 @@ __attribute__((noreturn)) void Reset_Handler(void)
 {
     /* .data from flash, .bss zeroed. Sizes come from linker-symbol addresses
      * (distinct objects as far as C is concerned, so compare integers). */
-    const size_t data_words = ((uintptr_t)&_edata - (uintptr_t)&_sdata) / sizeof(uint32_t);
-    const size_t bss_words  = ((uintptr_t)&_ebss - (uintptr_t)&_sbss) / sizeof(uint32_t);
-    const uint32_t *src = &_sidata;
-    uint32_t       *dst = &_sdata;
+    const size_t data_words = ((uintptr_t)_edata - (uintptr_t)_sdata) / sizeof(uint32_t);
+    const size_t bss_words  = ((uintptr_t)_ebss - (uintptr_t)_sbss) / sizeof(uint32_t);
+    const uint32_t *src = _sidata;
+    uint32_t       *dst = _sdata;
     for (size_t i = 0; i < data_words; i++) {
         dst[i] = src[i];
     }
-    dst = &_sbss;
+    dst = _sbss;
     for (size_t i = 0; i < bss_words; i++) {
         dst[i] = 0u;
     }
