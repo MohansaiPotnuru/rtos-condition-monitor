@@ -126,7 +126,7 @@ void test_cobs_random_roundtrip(void)
         const size_t n    = (size_t)(rand() % 700);
         const int    zpct = rand() % 100; /* density of zeros varies per run */
         for (size_t i = 0; i < n; i++) {
-            in[i] = (rand() % 100 < zpct) ? 0 : (uint8_t)(1 + rand() % 255);
+            in[i] = (uint8_t)((rand() % 100 < zpct) ? 0 : 1 + rand() % 255);
         }
         const size_t m = cobs_encode(in, n, enc, sizeof enc);
         CHECK(m >= 1 && m <= COBS_MAX_ENCODED(n));

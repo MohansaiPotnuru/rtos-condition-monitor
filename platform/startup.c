@@ -66,13 +66,18 @@ _Static_assert(sizeof(g_vectors) / sizeof(g_vectors[0]) == 16 + 85, "F401 has 85
 
 __attribute__((noreturn)) void Reset_Handler(void)
 {
-    /* .data from flash, .bss zeroed */
+    /* .data from flash, .bss zeroed. Sizes come from linker-symbol addresses
+     * (distinct objects as far as C is concerned, so compare integers). */
+    const size_t data_words = ((uintptr_t)&_edata - (uintptr_t)&_sdata) / sizeof(uint32_t);
+    const size_t bss_words  = ((uintptr_t)&_ebss - (uintptr_t)&_sbss) / sizeof(uint32_t);
     const uint32_t *src = &_sidata;
-    for (uint32_t *dst = &_sdata; dst < &_edata;) {
-        *dst++ = *src++;
+    uint32_t       *dst = &_sdata;
+    for (size_t i = 0; i < data_words; i++) {
+        dst[i] = src[i];
     }
-    for (uint32_t *dst = &_sbss; dst < &_ebss;) {
-        *dst++ = 0u;
+    dst = &_sbss;
+    for (size_t i = 0; i < bss_words; i++) {
+        dst[i] = 0u;
     }
 
     /* Full access to CP10/CP11 (FPU) before any floating-point code. */
