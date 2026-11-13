@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  host-tests:
+    name: Host unit tests (ASan + UBSan)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: C unit tests, gcc
+        run: make -C tests CC=gcc
+      - name: C unit tests, clang
+        run: make -C tests clean all CC=clang
+      - name: Python decoder contract tests
+        run: python3 tools/test_tlm_decode.py -v
+
+  static-analysis:
+    name: cppcheck
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cppcheck
+      - name: cppcheck (lib, app, platform)
+        run: |
+          cppcheck --enable=warning,performance,portability --std=c11 --inline-suppr \
+            --error-exitcode=1 --suppress=missingIncludeSystem --suppress=unmatchedSuppression \
+            -Ilib/include -Iapp -Iplatform/include -Iconfig -DSTM32F401xE -DTARGET_NUCLEO \
+            lib app platform
+
+  firmware:
+    name: Firmware (arm-none-eabi-gcc)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi
+      - run: arm-none-eabi-gcc --version | head -1
+      - name: Build NUCLEO-F401RE
+        run: make -j"$(nproc)" TARGET=nucleo
+      - name: Build QEMU target
+        run: make -j"$(nproc)" TARGET=qemu
+      - name: Size and stack report
+        run: |
+          {
+            echo '### Firmware size (NUCLEO-F401RE)'
+            echo '```'
+            arm-none-eabi-size build/nucleo/rtos-condition-monitor.elf
+            echo '```'
+            echo '### Deepest static stack frames'
+            echo '```'
+            cat build/nucleo/obj/app/*.su build/nucleo/obj/lib/*.su build/nucleo/obj/platform/*.su | sort -t$'\t' -k2 -n | tail -8
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Checksums
+        run: cd build/nucleo && sha256sum rtos-condition-monitor.{elf,bin,hex} > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            build/nucleo/rtos-condition-monitor.elf
+            build/nucleo/rtos-condition-monitor.bin
+            build/nucleo/rtos-condition-monitor.hex
+            build/nucleo/rtos-condition-monitor.map
+            build/nucleo/SHA256SUMS
+            build/qemu/rtos-condition-monitor.elf
+
+  qemu-smoke:
+    name: Boot under QEMU (netduinoplus2)
+    needs: firmware
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: fw
+      - run: sudo apt-get update && sudo apt-get install -y qemu-system-arm
+      - run: qemu-system-arm --version | head -1
+      - name: Run firmware for 8 s
+        run: |
+          timeout 8s qemu-system-arm -M netduinoplus2 -display none -monitor none \
+            -serial null -serial file:uart.log -kernel fw/qemu/rtos-condition-monitor.elf || true
+          echo '### UART log (QEMU)' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          head -c 6000 uart.log | tr -d '\r' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat uart.log
+      - name: Check boot log
+        run: python3 tools/check_qemu_log.py uart.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qemu-uart-log
+          path: uart.log
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [host-tests, static-analysis, firmware, qemu-smoke]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: fw
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" \
+            --notes "Firmware for NUCLEO-F401RE built by CI run $GITHUB_RUN_ID. Flash rtos-condition-monitor.bin at 0x08000000 (or drag it onto the NODE_F401RE drive)." \
+            fw/nucleo/rtos-condition-monitor.elf fw/nucleo/rtos-condition-monitor.bin \
+            fw/nucleo/rtos-condition-monitor.hex fw/nucleo/SHA256SUMS
