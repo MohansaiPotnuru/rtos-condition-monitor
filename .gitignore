@@ -1,0 +1,6 @@
+build/
+tests/build/
+*.su
+__pycache__/
+*.pyc
+uart.log
