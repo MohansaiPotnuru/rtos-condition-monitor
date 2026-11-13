@@ -51,6 +51,13 @@ bool bsp_adc_read(uint8_t channel, uint16_t *out)
     ADC1->SQR3 = channel;
     ADC1->CR2 |= ADC_CR2_SWSTART;
 
+#if defined(TARGET_QEMU)
+    /* QEMU's STM32F2xx ADC model never sets EOC; it synthesises a ramp on the
+     * DR read that follows SWSTART. Read it directly so the whole processing
+     * chain (filters, RMS windows, alarms, telemetry) is exercised in CI. */
+    *out = (uint16_t)(ADC1->DR & 0x0FFFu);
+    return true;
+#endif
     /* 480 + 12 cycles at 21 MHz is ~23 us; give up after 200 us. */
     const uint32_t t0 = bsp_time_us();
     while ((ADC1->SR & ADC_SR_EOC) == 0u) {

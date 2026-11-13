@@ -23,6 +23,7 @@ REQUIRED = [
     (r"^Tmr Svc\s", "timer daemon"),
     (r"supervisor: \d+ windows, last missing 0x0, feeding IWDG", "all tasks checking in"),
     (r"telemetry csv, every 200 ms", "telemetry switched to 200 ms"),
+    (r"adc errors 0 ", "ADC conversions complete (no timeouts)"),
 ]
 FORBIDDEN = [r"\*\*\* FATAL", r"selftest: FAIL", r"RTA .*FAIL", r"stalled"]
 MIN_TLM_LINES = 5
@@ -45,6 +46,12 @@ def main(path: str) -> int:
     print(f"{'ok  ' if len(seqs) >= MIN_TLM_LINES else 'FAIL'} telemetry lines: {len(seqs)} (need {MIN_TLM_LINES})")
     print(f"{'ok  ' if gaps == 0 else 'FAIL'} telemetry sequence gaps: {gaps}")
     ok &= len(seqs) >= MIN_TLM_LINES and gaps == 0
+
+    # Once the first 1 s window has closed, the analog fields must carry data.
+    late = [m.group(1) for m in re.finditer(r"^tlm,\d+,(\d+),[^,]+,(\d+),(\d+),", text, re.MULTILINE)
+            if int(m.group(1)) > 1500 and int(m.group(3)) > 0]
+    print(f"{'ok  ' if late else 'FAIL'} telemetry carries processed ADC data after the first window")
+    ok &= bool(late)
 
     print("\nQEMU smoke test:", "PASS" if ok else "FAIL")
     return 0 if ok else 1
